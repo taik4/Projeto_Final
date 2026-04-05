@@ -18,14 +18,14 @@ namespace TodoApi.Controllers
         /// Endpoint de verificação de saúde da API
         /// </summary>
         [HttpGet]
-        public IActionResult Get()
+        public IActionResult Get([FromServices] IConfiguration config)
         {
             var response = new HealthResponse
             {
                 Status = "ok",
                 Timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                Version = "1.0.0",
-                Application = "TodoApi"
+                Version = config["Application:Version"] ?? "1.0.0",
+                Application = config["Application:Name"] ?? "TodoApi"
             };
 
             _logger.LogInformation("Health check accessed at {Time}", response.Timestamp);

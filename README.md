@@ -1,26 +1,22 @@
-# Projeto Final - Sistema de Gerenciamento de Tarefas
+# Projeto Final - Sistema de financeiro 
 
 ## Objetivo
 
-Desenvolver uma API RESTful para gerenciamento de tarefas (Todo List) utilizando ASP.NET Core 8, seguindo as práticas de Git Flow para controle de versão.
+Desenvolver uma API RESTful para banking service (bankapi) utilizando ASP.NET Core 8, seguindo as práticas de Git Flow para controle de versão.
 
 ## Tecnologias
 
 - **Backend:** ASP.NET Core 8 (C#)
-- **Banco de Dados:** SQL Server / SQLite
+- **Banco de Dados:** MYSQL
 - **Versionamento:** Git Flow
 - **Documentação:** Swagger/OpenAPI
 
 ## Estrutura do Projeto
 
 ```
-proj-final-taik4/
+Projeto_Final
 ├── src/
-│   └── TodoApi/
-│       ├── Controllers/
-│       ├── Models/
-│       ├── Services/
-│       └── Program.cs
+│   └── bankApi
 ├── tests/
 ├── .gitignore
 └── README.md

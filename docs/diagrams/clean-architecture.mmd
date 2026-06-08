@@ -1,0 +1,307 @@
+%% Diagrama 6: Clean Architecture (Classes & Interfaces)
+%% Dependency rule: outer layers depend on inner layers
+
+classDiagram
+    %% Domain layer (innermost - no dependencies)
+    namespace Domain {
+        class Account {
+            -Guid accountId
+            -decimal balance
+            -AccountStatus status
+            -DateTime createdAt
+            -DateTime updatedAt
+            +Deposit(decimal amount)
+            +Withdraw(decimal amount)
+            +CanWithdraw(decimal amount) bool
+        }
+        
+        class Transaction {
+            -Guid transactionId
+            -Guid sourceAccountId
+            -Guid targetAccountId
+            -decimal amount
+            -TransactionType type
+            -TransactionStatus status
+            -DateTime createdAt
+        }
+        
+        class User {
+            -Guid userId
+            -string email
+            -byte[] passwordHash
+            -byte[] cpfHash
+            -Guid accountId
+            -UserStatus status
+        }
+        
+        class AccountStatus {
+            <<enumeration>>
+            ACTIVE
+            BLOCKED
+            CLOSED
+        }
+        
+        class TransactionType {
+            <<enumeration>>
+            TRANSFER
+            DEPOSIT
+            WITHDRAWAL
+        }
+        
+        class DomainException {
+            +string ErrorCode
+            +string Message
+        }
+        
+        class InsufficientFundsException {
+            +decimal Available
+            +decimal Requested
+        }
+        
+        class AccountNotFoundException {
+            +Guid AccountId
+        }
+    }
+    
+    %% Application layer (depends on Domain)
+    namespace Application {
+        class ITransactionService {
+            <<interface>>
+            +TransferAsync(TransferRequest) Task~TransferResponse~
+            +GetStatementAsync(StatementRequest) Task~StatementResponse~
+        }
+        
+        class IAuthenticationService {
+            <<interface>>
+            +LoginAsync(LoginRequest) Task~AuthResponse~
+            +RegisterAsync(RegisterRequest) Task~AuthResponse~
+            +ValidateTokenAsync(string token) Task~ClaimsPrincipal~
+        }
+        
+        class IAccountService {
+            <<interface>>
+            +CreateAccountAsync(CreateAccountRequest) Task~AccountResponse~
+            +GetAccountAsync(Guid accountId) Task~AccountResponse~
+            +GetBalanceAsync(Guid accountId) Task~BalanceResponse~
+        }
+        
+        class TransferPixUseCase {
+            -ITransactionRepository _transactions
+            -IAccountRepository _accounts
+            -ILogger _logger
+            +ExecuteAsync(TransferRequest) Task~TransferResponse~
+        }
+        
+        class GetStatementUseCase {
+            -ITransactionRepository _transactions
+            -IAccountRepository _accounts
+            +ExecuteAsync(StatementRequest) Task~StatementResponse~
+        }
+        
+        class LoginUseCase {
+            -IUserRepository _users
+            -IJwtService _jwtService
+            +ExecuteAsync(LoginRequest) Task~AuthResponse~
+        }
+        
+        class TransferRequest {
+            +Guid SourceAccountId
+            +Guid TargetAccountId
+            +decimal Amount
+            +string Description
+            +byte[] IdempotencyKey
+        }
+        
+        class TransferResponse {
+            +Guid TransactionId
+            +byte[] EndToEndId
+            +TransactionStatus Status
+            +DateTime Timestamp
+        }
+        
+        class StatementRequest {
+            +Guid AccountId
+            +DateTime? StartDate
+            +DateTime? EndDate
+            +string? Cursor
+            +int Limit
+        }
+        
+        class StatementResponse {
+            +List~TransactionDto~ Transactions
+            +string NextCursor
+            +bool HasMore
+            +int TotalCount
+        }
+        
+        class StatementValidator {
+            +Validate(StatementRequest) ValidationResult
+        }
+        
+        class IEventPublisher {
+            <<interface>>
+            +PublishAsync(TEvent event) Task
+        }
+        
+        class PixTransferCompletedEvent {
+            +Guid TransactionId
+            +Guid SourceAccountId
+            +Guid TargetAccountId
+            +decimal Amount
+            +DateTime Timestamp
+        }
+    }
+    
+    %% Infrastructure layer (depends on Application + Domain)
+    namespace Infrastructure {
+        class ITransactionRepository {
+            <<interface>>
+            +ProcessTransferAsync(TransferRequest) Task~Transaction~
+            +GetStatementAsync(Guid accountId, filters) Task~Transaction[]~
+            +GetByIdAsync(Guid transactionId) Task~Transaction~
+            +CheckIdempotencyAsync(byte[] key) Task~Transaction~
+        }
+        
+        class IAccountRepository {
+            <<interface>>
+            +GetByIdAsync(Guid accountId) Task~Account~
+            +CreateAsync(Account account) Task
+            +UpdateAsync(Account account) Task
+            +GetBalanceAsync(Guid accountId) Task~decimal~
+        }
+        
+        class IUserRepository {
+            <<interface>>
+            +GetByEmailAsync(string email) Task~User~
+            +CreateAsync(User user) Task
+            +UpdateAsync(User user) Task
+        }
+        
+        class TransactionRepository {
+            -BankingDbContext _context
+            -IDbConnection _connection
+            +ProcessTransferAsync(TransferRequest) Task~Transaction~
+            +GetStatementAsync(Guid accountId, filters) Task~Transaction[]~
+        }
+        
+        class AccountRepository {
+            -BankingDbContext _context
+            +GetByIdAsync(Guid accountId) Task~Account~
+            +CreateAsync(Account account) Task
+            +UpdateAsync(Account account) Task
+        }
+        
+        class UserRepository {
+            -BankingDbContext _context
+            +GetByEmailAsync(string email) Task~User~
+            +CreateAsync(User user) Task
+        }
+        
+        class BankingDbContext {
+            +DbSet~Account~ Accounts
+            +DbSet~Transaction~ Transactions
+            +DbSet~User~ Users
+            +DbSet~AuditLog~ AuditLogs
+            #OnModelCreating(ModelBuilder)
+        }
+        
+        class JwtService {
+            -RSA _rsa
+            -JwtConfiguration _config
+            +GenerateToken(User user) string
+            +ValidateToken(string token) ClaimsPrincipal
+        }
+        
+        class BcryptPasswordHasher {
+            +HashPassword(string password) byte[]
+            +VerifyPassword(string password, byte[] hash) bool
+        }
+        
+        class KafkaEventPublisher {
+            -IProducer~string, string~ _producer
+            +PublishAsync(TEvent event) Task
+        }
+        
+        class InMemoryEventPublisher {
+            -ILogger _logger
+            +PublishAsync(TEvent event) Task
+        }
+        
+        class Sha256Helper {
+            +ComputeHash(byte[] data) byte[]
+            +ComputeHash(string data) byte[]
+        }
+    }
+    
+    %% API layer (depends on all layers)
+    namespace API {
+        class AccountsController {
+            -IAccountService _accountService
+            +GetBalance(Guid accountId) ActionResult~BalanceResponse~
+            +Transfer(TransferRequest) ActionResult~TransferResponse~
+            +GetStatement(StatementRequest) ActionResult~StatementResponse~
+        }
+        
+        class AuthController {
+            -IAuthenticationService _authService
+            +Login(LoginRequest) ActionResult~AuthResponse~
+            +Register(RegisterRequest) ActionResult~AuthResponse~
+        }
+        
+        class ExceptionMiddleware {
+            +InvokeAsync(HttpContext context) Task
+            -HandleException(Exception ex, HttpContext context)
+        }
+        
+        class JwtAuthenticationMiddleware {
+            +InvokeAsync(HttpContext context) Task
+            +AuthenticateRequest(HttpContext context)
+        }
+    }
+    
+    %% Relationships: Dependency Rule (outer → inner)
+    TransferPixUseCase ..|> ITransactionService
+    GetStatementUseCase ..|> ITransactionService
+    LoginUseCase ..|> IAuthenticationService
+    
+    TransferPixUseCase --> ITransactionRepository : uses
+    TransferPixUseCase --> IAccountRepository : uses
+    GetStatementUseCase --> ITransactionRepository : uses
+    LoginUseCase --> IUserRepository : uses
+    
+    TransactionRepository ..|> ITransactionRepository
+    AccountRepository ..|> IAccountRepository
+    UserRepository ..|> IUserRepository
+    
+    TransactionRepository --> BankingDbContext : EF Core (CRUD)
+    TransactionRepository --> Transaction : Domain
+    AccountRepository --> Account : Domain
+    UserRepository --> User : Domain
+    
+    AccountsController --> IAccountService : depends on
+    AccountsController --> ITransactionService : depends on
+    AuthController --> IAuthenticationService : depends on
+    
+    KafkaEventPublisher ..|> IEventPublisher
+    InMemoryEventPublisher ..|> IEventPublisher
+    
+    TransferPixUseCase --> IEventPublisher : publishes events
+    TransferPixUseCase --> TransferRequest : validates
+    TransferPixUseCase --> TransferResponse : returns
+    GetStatementUseCase --> StatementValidator : validates
+    GetStatementUseCase --> StatementResponse : returns
+    
+    %% Domain entities (no dependencies)
+    Account --> AccountStatus
+    Transaction --> TransactionType
+    InsufficientFundsException --|> DomainException
+    AccountNotFoundException --|> DomainException
+    
+    TransferPixUseCase ..> InsufficientFundsException : throws
+    TransferPixUseCase ..> AccountNotFoundException : throws
+    
+    %% Styling
+    style Domain fill:#FEF3C7,stroke:#F59E0B,stroke-width:3px
+    style Application fill:#DBEAFE,stroke:#3B82F6,stroke-width:3px
+    style Infrastructure fill:#D1FAE5,stroke:#10B981,stroke-width:3px
+    style API fill:#E0E7FF,stroke:#6366F1,stroke-width:3px

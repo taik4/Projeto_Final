@@ -1,0 +1,126 @@
+%% Diagrama 4: Modelo de Dados (Entity Relationship)
+%% Banco de dados relacional MySQL 8.0
+
+erDiagram
+    %% Users table (authentication & identity)
+    USER {
+        guid id PK "CHAR(36)"
+        string email UK "VARCHAR(255) UNIQUE"
+        binary password_hash "VARBINARY(60) - bcrypt"
+        binary cpf_hash UK "VARBINARY(64) - SHA256"
+        string full_name "VARCHAR(100)"
+        guid account_id FK "CHAR(36)"
+        enum status "ACTIVE, INACTIVE, BLOCKED"
+        datetime created_at "TIMESTAMP"
+        datetime updated_at "TIMESTAMP"
+        datetime deleted_at "TIMESTAMP NULL"
+    }
+    
+    %% Accounts table (banking accounts)
+    ACCOUNT {
+        guid account_id PK "CHAR(36)"
+        string account_number UK "VARCHAR(20) UNIQUE"
+        enum account_type "CHECKING, SAVINGS"
+        decimal balance "DECIMAL(18,2) CHECK ≥ 0"
+        enum status "ACTIVE, BLOCKED, CLOSED"
+        datetime created_at "TIMESTAMP"
+        datetime updated_at "TIMESTAMP"
+        datetime closed_at "TIMESTAMP NULL"
+    }
+    
+    %% Transactions table (PIX transfers)
+    TRANSACTION {
+        bigint transaction_id PK "AUTO_INCREMENT (for keyset pagination)"
+        guid id UK "CHAR(36) UNIQUE"
+        binary end_to_end_id UK "BINARY(32) UNIQUE - PIX E2E ID"
+        binary idempotency_key UK "BINARY(16) UNIQUE - RN02"
+        guid source_account_id FK "CHAR(36) - Debit account"
+        guid target_account_id FK "CHAR(36) - Credit account"
+        decimal amount "DECIMAL(18,2) CHECK > 0"
+        enum transaction_type "TRANSFER, DEPOSIT, WITHDRAWAL"
+        enum status "PENDING, COMPLETED, FAILED, REVERSED"
+        string description "VARCHAR(255)"
+        string sender_name_snapshot "VARCHAR(100) - RN05"
+        string sender_cpf_snapshot "VARCHAR(14) - RN05"
+        string receiver_name_snapshot "VARCHAR(100) - RN05"
+        string receiver_cpf_snapshot "VARCHAR(14) - RN05"
+        datetime created_at "TIMESTAMP"
+        datetime completed_at "TIMESTAMP NULL"
+    }
+    
+    %% Audit logs table (regulatory compliance)
+    AUDIT_LOG {
+        bigint audit_id PK "AUTO_INCREMENT"
+        string entity_type "VARCHAR(50)"
+        string entity_id "VARCHAR(36)"
+        string action "INSERT, UPDATE, DELETE"
+        json old_values "JSON NULL"
+        json new_values "JSON NULL"
+        string performed_by "VARCHAR(255)"
+        datetime created_at "TIMESTAMP"
+    }
+    
+    %% Indexes (for performance)
+    INDEX_USER_EMAIL {
+        string email "UNIQUE INDEX"
+    }
+    
+    INDEX_USER_CPF {
+        binary cpf_hash "UNIQUE INDEX"
+    }
+    
+    INDEX_ACCOUNT_NUMBER {
+        string account_number "UNIQUE INDEX"
+    }
+    
+    INDEX_TRANSACTION_E2E {
+        binary end_to_end_id "UNIQUE INDEX"
+    }
+    
+    INDEX_TRANSACTION_IDEMPOTENCY {
+        binary idempotency_key "UNIQUE INDEX"
+    }
+    
+    INDEX_TRANSACTION_ACCOUNT_DATE {
+        guid source_account_id "INDEX"
+        guid target_account_id "INDEX"
+        datetime created_at "INDEX DESC (pagination)"
+    }
+    
+    %% Relationships
+    USER ||--o{ ACCOUNT : "owns (1:1 via account_id)"
+    ACCOUNT ||--o{ TRANSACTION : "source_account (many)"
+    ACCOUNT ||--o{ TRANSACTION : "target_account (many)"
+    AUDIT_LOG }o--o{ USER : "performed_by"
+    AUDIT_LOG }o--o{ ACCOUNT : "entity_id"
+    AUDIT_LOG }o--o{ TRANSACTION : "entity_id"
+    
+    %% Views (virtual tables for queries)
+    VIEW_STATEMENT {
+        guid account_id "Filtered by user"
+        bigint transaction_id "For keyset pagination"
+        string transaction_type "TRANSFER, DEPOSIT, CREDIT"
+        decimal amount "Positive or negative"
+        datetime timestamp "ISO 8601"
+        string description "Transaction description"
+        string counterparty_name "Masked (RN04)"
+        string counterparty_cpf "Masked (RN04)"
+        binary end_to_end_id "PIX E2E ID"
+    }
+    
+    %% Stored procedures
+    SP_PROCESS_PIX {
+        guid p_source_account_id "IN: Source account"
+        guid p_target_account_id "IN: Target account"
+        decimal p_amount "IN: Amount to transfer"
+        string p_description "IN: Description"
+        binary p_end_to_end_id "OUT: PIX E2E ID"
+        bigint p_transaction_id "OUT: Created transaction ID"
+        int p_result_code "OUT: 0=OK, 1=Idempotent, 2=Insufficient funds"
+    }
+    
+    %% Triggers
+    TRG_TRANSACTION_AUDIT {
+        string event "AFTER INSERT ON transactions"
+        string action "INSERT INTO audit_log"
+    }

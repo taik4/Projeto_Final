@@ -1,0 +1,67 @@
+%% Diagrama 3: Sequência de Consulta de Extrato
+%% Demonstrates cursor-based pagination with masking
+
+sequenceDiagram
+    autonumber
+    
+    %% Participants
+    actor Client as 👤 Client
+    participant API as 🚀 BankingCore.API
+    participant Auth as 🔐 JWT Middleware
+    participant UseCase as 🎯 GetStatementUseCase
+    participant Repo as 📊 TransactionRepository<br/>(Dapper)
+    participant DB as 🗄️ MySQL 8.0<br/>(VIEW)
+    
+    %% Initial request (first page)
+    Client->>+API: GET /api/accounts/{id}/statement<br/>?limit=50&startDate=2026-01-01
+    API->>+Auth: Verify JWT + account ownership
+    Auth-->>-API: ✅ Authorized
+    
+    API->>+UseCase: GetStatement(accountId, dateRange)
+    UseCase->>+Repo: QueryStatement(accountId, filter)
+    
+    Note over Repo,DB: Dapper raw SQL for performance<br/>Bypass ORM overhead
+    
+    Repo->>+DB: SELECT * FROM vw_account_statement<br/>WHERE account_id = @accountId<br/>AND date >= @startDate<br/>ORDER BY date DESC<br/>LIMIT 50
+    
+    Note right of DB: View applies masking:<br/>fn_mask_document(CPF)<br/>fn_mask_name(receiver)<br/>(compliance with RN04)
+    
+    DB-->>-Repo: [Transaction[], totalCount]
+    Repo-->>-UseCase: StatementResult
+    
+    Note over UseCase: Calculate next cursor:<br/>last transaction_id<br/>hasMore = count == limit
+    
+    UseCase-->>-API: StatementResponse
+    API-->>-Client: 200 OK
+    Note right of Client: {<br/>  transactions: [...],<br/>  nextCursor: "12345",<br/>  hasMore: true,<br/>  totalCount: 250<br/>}
+    
+    %% Second page (cursor pagination)
+    rect rgb(240, 255, 240)
+        Note over Client,DB: 📄 Pagination (Cursor-based)
+        Client->>+API: GET /api/accounts/{id}/statement<br/>?cursor=12345&limit=50
+        API->>+UseCase: GetStatement with cursor
+        UseCase->>+Repo: QueryStatement with cursor
+        Repo->>+DB: SELECT * FROM vw_account_statement<br/>WHERE account_id = @accountId<br/>AND transaction_id < @cursor<br/>ORDER BY date DESC<br/>LIMIT 50
+        
+        Note right of DB: Keyset pagination:<br/>O(1) lookup via index<br/>Consistent results<br/>No OFFSET performance penalty
+        
+        DB-->>-Repo: [Transaction[] (next 50)]
+        Repo-->>-UseCase: StatementResult
+        UseCase-->>-API: StatementResponse
+        API-->>-Client: 200 OK
+        Note right of Client: {<br/>  transactions: [...],<br/>  nextCursor: "12395",<br/>  hasMore: true<br/>}
+    end
+    
+    %% Empty result
+    rect rgb(255, 250, 240)
+        Note over Client,DB: 📭 Empty Result
+        Client->>+API: GET /api/accounts/{id}/statement<br/>?cursor=99999&limit=50
+        API->>+UseCase: GetStatement
+        UseCase->>+Repo: QueryStatement
+        Repo->>+DB: SELECT ...
+        DB-->>-Repo: []
+        Repo-->>-UseCase: Empty result
+        UseCase-->>-API: StatementResponse
+        API-->>-Client: 200 OK
+        Note right of Client: {<br/>  transactions: [],<br/>  nextCursor: null,<br/>  hasMore: false<br/>}
+    end

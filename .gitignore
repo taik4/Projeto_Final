@@ -1,0 +1,26 @@
+# ============================================================
+# .gitignore - LiceBank Banking Core
+# ============================================================
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+
+# Secrets & Environment
+.env
+*.env.local
+
+# IDE
+.idea/
+.vscode/
+
+# Docker volumes (não versionar dados)
+mysql_data/
+kafka_data/
+
+# OS
+Thumbs.db
+.DS_Store

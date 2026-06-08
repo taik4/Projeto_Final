@@ -1,0 +1,76 @@
+%% Diagrama 2: Sequência de Transferência PIX
+%% Fluxo completo desde autenticação até publicação de evento
+
+sequenceDiagram
+    autonumber
+    
+    %% Participants
+    actor Client as 👤 Client
+    participant API as 🚀 BankingCore.API<br/>(ASP.NET Core)
+    participant Auth as 🔐 JWT Middleware<br/>(RS256 Verification)
+    participant Validator as ✅ Validator<br/>(FluentValidation)
+    participant UseCase as 🎯 UseCase<br/>(TransferPixUseCase)
+    participant DB as 🗄️ MySQL 8.0<br/>(Stored Procedures)
+    participant EventPub as 📢 EventPublisher<br/>(Kafka Producer)
+    participant Consumer as 🔄 Consumer<br/>(Async Workers)
+    
+    %% Request flow
+    Client->>+API: POST /api/pix/transfer<br/>Authorization: Bearer {JWT}<br/>X-Idempotency-Key: {GUID}
+    
+    %% JWT validation
+    API->>+Auth: Validate JWT Token
+    Auth->>Auth: Verify RS256 signature<br/>Extract user_id from claims
+    Auth-->>-API: ✅ Authenticated<br/>user_id: {GUID}
+    
+    %% Input validation
+    API->>+Validator: Validate TransferRequest
+    Validator->>Validator: Check amount > 0<br/>Validate account IDs<br/>Verify idempotency key format
+    Validator-->>-API: ✅ Valid request
+    
+    %% Business logic
+    API->>+UseCase: Execute transfer
+    Note over UseCase,DB: Clean Architecture:<br/>Application orchestrates,<br/>Infrastructure executes
+    
+    UseCase->>+DB: CALL sp_process_pix_transfer(
+    Note right of DB: START TRANSACTION<br/>🔒 FOR UPDATE NOWAIT
+    
+    DB->>DB: 1️⃣ Check idempotency<br/>(idempotency_key EXISTS?)
+    DB->>DB: 2️⃣ Lock source account<br/>(SELECT FOR UPDATE)
+    DB->>DB: 3️⃣ Validate balance<br/>(≥ transfer amount)
+    DB->>DB: 4️⃣ Debit source account<br/>(UPDATE accounts)
+    DB->>DB: 5️⃣ Credit target account<br/>(UPDATE accounts)
+    DB->>DB: 6️⃣ Insert DEBIT transaction
+    DB->>DB: 7️⃣ Insert CREDIT transaction<br/>(with masked receiver name)
+    
+    Note right of DB: COMMIT TRANSACTION<br/>✅ Atomic operation
+    
+    DB-->>-UseCase: ✅ Transfer completed<br/>end_to_end_id: {E2E_ID}<br/>status: SETTLED
+    
+    %% Event publishing
+    UseCase->>+EventPub: Publish PixTransferCompletedEvent
+    Note right of EventPub: Event contains:<br/>• transaction_id<br/>• source_account_id<br/>• target_account_id<br/>• amount<br/>• end_to_end_id<br/>• timestamp
+    
+    EventPub->>EventPub: Serialize to JSON<br/>Publish to Kafka topic
+    EventPub-->>-UseCase: ✅ Event published
+    
+    Note over EventPub,Consumer: Kafka guarantees:<br/>• At-least-once delivery<br/>• Ordered within partition<br/>• Consumer offset tracking
+    
+    UseCase-->>-API: ✅ TransferResponse
+    API-->>-Client: 201 Created<br/>{transactionId, endToEndId, status}
+    
+    %% Async processing
+    rect rgb(240, 248, 255)
+        Note over Consumer: Background Processing<br/>(Eventually Consistent)
+        EventPub-)Consumer: 📨 Consume event
+        Consumer->>Consumer: Send notification<br/>Send email<br/>Update analytics<br/>Log audit trail
+    end
+    
+    %% Error scenarios
+    rect rgb(255, 240, 240)
+        Note over API,DB: ❌ Error Scenarios
+        Client-)API: Retry with same idempotency key
+        API-)DB: CALL sp_process_pix_transfer
+        DB-)DB: Detect duplicate<br/>Return original result
+        DB--)API: ✅ Idempotent response<br/>(no duplicate debit)
+        API--)Client: 200 OK<br/>(original transaction)
+    end

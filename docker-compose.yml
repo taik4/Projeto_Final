@@ -1,0 +1,122 @@
+# ============================================================
+# Docker Compose - LiceBank Banking Core
+# ============================================================
+# Subir todos os serviços:  docker compose up -d
+# Ver logs:                 docker compose logs -f
+# Derrubar tudo:            docker compose down -v
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # MySQL 8.0 — Banco de dados principal do Banking Core
+  # ----------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: licebank_mysql
+    restart: unless-stopped
+    ports:
+      # Porta externa configurável via MYSQL_PORT (evita conflitos com MySQL local em 3306)
+      # Default: 3307. Para alterar, defina MYSQL_PORT no .env ou como variável de ambiente.
+      - "${MYSQL_PORT:-3307}:3306"
+    environment:
+      # Secrets DEV — em produção use .env ou Docker Secrets
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-LiceBank@Root2024}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-banking_core}
+      MYSQL_USER: ${MYSQL_USER:-licebank_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-LiceBank@App2024}
+      TZ: America/Sao_Paulo
+    volumes:
+      # Volume para persistência dos dados
+      - mysql_data:/var/lib/mysql
+      # Script de inicialização (executado apenas no primeiro boot)
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      # Habilita stored procedures e triggers
+      - --log-bin-trust-function-creators=1
+      # Timeout curto para locks pessimistas (NOWAIT equivale a 0s, mas aqui protege outros cenários)
+      - --innodb-lock-wait-timeout=5
+    networks:
+      - licebank_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-LiceBank@Root2024}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------------
+  # Apache Kafka — Mensageria para eventos de transação
+  # (Usando KRaft mode — sem Zookeeper, mais simples para dev)
+  # ----------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: licebank_kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"   # PLAINTEXT (interno/Docker)
+      - "29092:29092"  # PLAINTEXT_HOST (acesso local)
+    environment:
+      # KRaft mode (sem Zookeeper)
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Listeners
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Tópicos e offsets
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 dias
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qg
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - licebank_network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------------
+  # Kafdrop — UI para visualizar tópicos do Kafka (opcional)
+  # ----------------------------------------------------------
+  kafdrop:
+    image: obsidiandynamics/kafdrop:4.0.1
+    container_name: licebank_kafdrop
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - licebank_network
+
+# ----------------------------------------------------------
+# Volumes persistentes
+# ----------------------------------------------------------
+volumes:
+  mysql_data:
+    driver: local
+  kafka_data:
+    driver: local
+
+# ----------------------------------------------------------
+# Rede compartilhada entre todos os serviços
+# ----------------------------------------------------------
+networks:
+  licebank_network:
+    driver: bridge

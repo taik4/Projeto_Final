@@ -1,0 +1,54 @@
+%% Diagrama 1: Arquitetura de Infraestrutura (Docker Compose)
+%% Mostra todos os containers e suas conexões na rede isolada
+
+graph TB
+    subgraph "Docker Network: licebank_network (bridge)"
+        direction TB
+        
+        subgraph "🗄️ Data Layer"
+            MySQL[(MySQL 8.0<br/>licebank_mysql<br/>Port: 3307:3306<br/>DB: banking_core)]
+            MySQLVol[(Volume: mysql_data<br/>Persistence)]
+        end
+        
+        subgraph "📨 Message Broker"
+            Kafka[Kafka 7.6.1<br/>licebank_kafka<br/>Port: 29092<br/>KRaft Mode]
+            KafkaVol[(Volume: kafka_data<br/>Topic Retention)]
+        end
+        
+        subgraph "🔍 Monitoring"
+            Kafdrop[Kafdrop<br/>licebank_kafdrop<br/>Port: 9000<br/>Topic Browser]
+        end
+        
+        subgraph "⚡ Application Layer"
+            API[ASP.NET Core API<br/>BankingCore.API<br/>Port: 5000<br/>.NET 8 Runtime]
+        end
+    end
+    
+    %% External actors
+    Client[👤 Client<br/>Browser / Postman<br/>Swagger UI]
+    Developer[👨‍💻 Developer<br/>Docker / CLI]
+    
+    %% Connections
+    Client -->|HTTP/REST<br/>JWT Auth| API
+    
+    API -->|"EF Core (CRUD)<br/>Dapper (SPs)<br/>Pomelo.MySql"| MySQL
+    API -->|"Events<br/>Confluent.Kafka<br/>pix-transfers topic"| Kafka
+    
+    Kafka -->|Monitor Topics| Kafdrop
+    
+    MySQL --- MySQLVol
+    Kafka --- KafkaVol
+    
+    Developer -->|docker compose| API
+    Developer -->|dotnet test| API
+    Developer -->|kubectl/swarm| Kafka
+    
+    %% Styling
+    style MySQL fill:#4479A1,stroke:#233d5e,stroke-width:3px,color:#fff
+    style Kafka fill:#231F20,stroke:#EAA520,stroke-width:3px,color:#EAA520
+    style Kafdrop fill:#0DB7ED,stroke:#065a82,stroke-width:2px,color:#fff
+    style API fill:#512BD4,stroke:#2d1a7a,stroke-width:3px,color:#fff
+    style Client fill:#10B981,stroke:#065f46,stroke-width:2px
+    style Developer fill:#F59E0B,stroke:#92400e,stroke-width:2px
+    style MySQLVol fill:#64748b,stroke:#334155,stroke-width:2px
+    style KafkaVol fill:#64748b,stroke:#334155,stroke-width:2px

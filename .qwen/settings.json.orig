@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(dotnet *)",
+      "Bash(mkdir *)",
+      "Bash(del *)",
+      "Bash(rmdir *)",
+      "Bash(select-string *)",
+      "Bash(select-object *)",
+      "Bash(taskkill *)",
+      "Bash(docker-compose *)",
+      "Bash(docker volume *)",
+      "Bash(timeout *)"
+    ]
+  },
+  "$version": 4
+}

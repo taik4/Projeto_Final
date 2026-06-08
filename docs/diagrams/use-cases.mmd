@@ -1,0 +1,87 @@
+%% Diagrama 5: Casos de Uso
+%% Atores e funcionalidades do sistema bancário
+
+graph TB
+    %% Actors
+    Client[👤 Cliente<br/>Account Holder]
+    Admin[🛡️ Administrador<br/>System Operator]
+    System[⚙️ Sistema<br/>Automated Processes]
+    
+    %% Use cases
+    subgraph "🔐 Authentication"
+        UC1[Register Account]
+        UC2[Login JWT]
+        UC3[Logout]
+        UC4[Refresh Token]
+    end
+    
+    subgraph "🏦 Account Management"
+        UC5[View Balance]
+        UC6[Update Profile]
+        UC7[Close Account]
+        UC8[Block Account]
+    end
+    
+    subgraph "💸 Transactions"
+        UC9[Transfer PIX]
+        UC10[View Statement]
+        UC11[Search Transactions]
+        UC12[Export PDF]
+    end
+    
+    subgraph "📊 Administration"
+        UC13[View Audit Logs]
+        UC14[Block User]
+        UC15[Revert Transaction]
+        UC16[Generate Reports]
+    end
+    
+    subgraph "🔄 System Processes"
+        UC17[Process Events]
+        UC18[Send Notifications]
+        UC19[Archive Old Data]
+        UC20[Kafka Rebalance]
+    end
+    
+    %% Client relationships
+    Client --> UC1
+    Client --> UC2
+    Client --> UC3
+    Client --> UC5
+    Client --> UC6
+    Client --> UC7
+    Client --> UC9
+    Client --> UC10
+    Client --> UC11
+    Client --> UC12
+    
+    %% Admin relationships
+    Admin --> UC8
+    Admin --> UC13
+    Admin --> UC14
+    Admin --> UC15
+    Admin --> UC16
+    
+    %% System relationships
+    System --> UC17
+    System --> UC18
+    System --> UC19
+    System --> UC20
+    System -.->|Triggered by| UC9
+    System -.->|Triggered by| UC7
+    
+    %% Use case dependencies
+    UC9 -.->|Publishes event| UC17
+    UC7 -.->|Publishes event| UC17
+    UC17 -.->|Triggers| UC18
+    UC19 -.->|Archives| UC10
+    
+    %% Styling
+    style Client fill:#10B981,stroke:#065f46,stroke-width:3px,color:#fff
+    style Admin fill:#F59E0B,stroke:#92400e,stroke-width:3px,color:#fff
+    style System fill:#8B5CF6,stroke:#5b21b6,stroke-width:3px,color:#fff
+    
+    style UC2 fill:#3B82F6,stroke:#1e3a8a,stroke-width:2px
+    style UC9 fill:#3B82F6,stroke:#1e3a8a,stroke-width:2px
+    style UC10 fill:#3B82F6,stroke:#1e3a8a,stroke-width:2px
+    style UC17 fill:#8B5CF6,stroke:#5b21b6,stroke-width:2px
